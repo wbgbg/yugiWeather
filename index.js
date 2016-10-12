@@ -1,13 +1,17 @@
 'use strict';
 var rp = require('request-promise-native');
 var fs = require('fs-extra');
+var co = require('co');
 var CronJob = require('cron').CronJob;
 var TopClient = require('./sdk').ApiClient;
 var baseUri = 'https://api.thinkpage.cn/v3';
 var mykey = 'vaeqfgg9lj9jjlym';
 
 
-function fetchWeather(city) {
+function fetchWeather(city, tryTimes) {
+    if (tryTimes > 5) {
+        return Promise.reject();
+    }
     return rp({
         uri: baseUri + '/weather/daily.json',
         qs: {
@@ -22,7 +26,7 @@ function fetchWeather(city) {
         return res;
     }).catch(err => {
         console.log(err);
-        return err
+        return fetchWeather(city, tryTimes+1);
     });
 }
 
@@ -39,7 +43,7 @@ function fetchSuggestion(city) {
         return res;
     }).catch(err => {
         console.log(err);
-        return err;
+        return null;
     });
 }
 
@@ -73,15 +77,18 @@ function sendRequest(user, weather) {
 }
 
 var job = new CronJob({
-    cronTime: '00 00 07 * * *',
+    cronTime: '00 07 07 * * *',
     onTick: function() {
     	let obj = fs.readJSONSync('./config.json');
-    	obj.forEach(item => {
-			fetchWeather(item.city).then(weather => {
-				sendRequest(item, weather.results[0]);
-			});
-    		//fetchSuggestion(item.city);
-    	});
+        for (let i=0; i<obj.length; i++) {
+            co(function*() {
+                let item = obj[i];
+                let weather = yield fetchWeather(item.city, 0);
+                sendRequest(item, weather.results[0]);
+            }).catch(err => {
+                console.log(err);
+            });;
+        }
     },
     start: false,
     timeZone: 'Asia/Shanghai'
@@ -89,9 +96,18 @@ var job = new CronJob({
 job.start();
 
 
+
 /*
 (function tester() {
-	fetchWeather('hangzhou');
-	fetchSuggestion('hangzhou');
+    let obj = fs.readJSONSync('./config.json');
+    for (let i=0; i<obj.length; i++) {
+    co(function*() {
+        let item = obj[i];
+        let weather = yield fetchWeather(item.city, 0);
+        sendRequest(item, weather.results[0]);
+    }).catch(err => {
+        console.log(err);
+    });
+    }
 })()
 */
